@@ -1,0 +1,10 @@
+CONCRETE_CPP_UTIL_SRC_DIR = concrete-cpp/util/src
+CONCRETE_CPP_UTIL_SRC_ = $(shell find $(CONCRETE_CPP_UTIL_SRC_DIR) -type f -name '*.cc') 
+SRC += $(CONCRETE_CPP_UTIL_SRC_)
+CONCRETE_CPP_UTIL_REPLACED_SRC += $(subst \
+	$(CONCRETE_CPP_UTIL_SRC_DIR)/,\
+	$(SHARED_BUILD_WHERE)/concrete_util/,$(CONCRETE_CPP_UTIL_SRC_))
+CONCRETE_CPP_UTIL_H_ = $(shell find $(CONCRETE_CPP_UTIL_SRC_DIR) -type f -name '*.h')
+SRC += $(CONCRETE_CPP_UTIL_H_)
+CONCRETE_CPP_UTIL_TCC_ = $(shell find $(CONCRETE_CPP_UTIL_SRC_DIR) -type f -name '*.tcc')
+SRC += $(CONCRETE_CPP_UTIL_TCC_)

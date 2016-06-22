@@ -1,0 +1,87 @@
+NAMESPACE_NAME = concrete
+#CONCRETE_CPP_CORE_MODULE_INCLUDE = $(GENERATED_TOP)/include/$(NAMESPACE_NAME)
+
+BASE_GEN := $(subst $(CONCRETE_CPP_CORE_MODULE_THRIFT_WHERE)/,$(CONCRETE_CPP_CORE_MODULE_INCLUDE)/,$(shell find $(CONCRETE_CPP_CORE_MODULE_THRIFT_WHERE) -type f -name '*.thrift'))
+
+# FILE_constants.{cpp,h}
+# FILE_types.{cpp,h}
+
+GEN_CONST_CPP := ${BASE_GEN:.thrift=_constants.cpp}
+GEN_CONST_H := ${BASE_GEN:.thrift=_constants.h}
+GEN_TYPES_CPP := ${BASE_GEN:.thrift=_types.cpp}
+GEN_TYPES_H := ${BASE_GEN:.thrift=_types.h}
+BASE_CONCRETE_CORE_VERSION_H_ = version.hpp
+CONCRETE_CORE_VERSION_H_ = $(shell pwd)/concrete-cpp/core/src/$(BASE_CONCRETE_CORE_VERSION_H_)
+CONCRETE_CORE_VERSION_HPP = $(CONCRETE_CPP_CORE_MODULE_INCLUDE)/$(BASE_CONCRETE_CORE_VERSION_H_)
+CONCRETE_CORE_VERSION_CPP_ = $(CONCRETE_CPP_CORE_MODULE_BUILD)/version.cpp
+
+CONCRETE_CORE_MODULE_GEN_H = $(CONCRETE_CORE_VERSION_HPP) $(GEN_CONST_H) $(GEN_TYPES_H)
+
+ALL_GEN_CPP = $(subst \
+	$(CONCRETE_CPP_CORE_MODULE_INCLUDE)/, \
+	$(CONCRETE_CPP_CORE_MODULE_BUILD)/, \
+	$(GEN_CONST_CPP) $(GEN_TYPES_CPP))
+
+CONCRETE_CORE_MODULE_GEN_OBJ_ = $(patsubst %.cpp,%.o, \
+	$(ALL_GEN_CPP) $(CONCRETE_CORE_VERSION_CPP_) )
+
+ALL_GEN_CPP_H = $(CONCRETE_CORE_MODULE_GEN_H) $(ALL_GEN_CPP)
+
+THRIFT_COMPILE = $(CONCRETE_CPP_CORE_THRIFT_EXEC) -gen cpp -I $(CONCRETE_CPP_CORE_MODULE_THRIFT_WHERE)
+#-o $(CONCRETE_CPP_CORE_MODULE_INCLUDE)
+
+########################################
+
+CONCRETE_CXX_COMPILE := $(CXX) $(CXXFLAGS) -shared -fPIC
+
+##################################################
+##################################################
+########### GENERATED CONCRETE TARGETS ###########
+##################################################
+##################################################
+
+.CONC_VER = $(shell grep "Current version:" $(CONCRETE_CPP_CORE_MODULE_THRIFT_README) | tr -d '`' | cut -d: -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$$//')
+.concrete_core__version__file__.:
+	@if [ -z "X$(.CONC_VER)" ]; then echo "Cannot determine version from Thrift README: Please verify that the readme exists (at $<)"; exit 1; else echo $(.CONC_VER) > $@; fi
+
+$(CONCRETE_CPP_CORE_MODULE_INCLUDE)/%_constants.h: $(CONCRETE_CPP_CORE_MODULE_THRIFT_WHERE)/%.thrift
+	@echo "Compiling thrift $< to make $*_constants.h"
+	@if [ ! -d $(@D) ]; then mkdir -p $(@D); fi
+	$(THRIFT_COMPILE) -out $(@D) $<
+$(CONCRETE_CPP_CORE_MODULE_BUILD)/%_constants.cpp: $(CONCRETE_CPP_CORE_MODULE_THRIFT_WHERE)/%.thrift
+	@echo "Compiling thrift $< to make $*_constants.cpp"
+	@if [ ! -d $(@D) ]; then mkdir -p $(@D); fi
+	$(THRIFT_COMPILE) -out $(@D) $<
+$(CONCRETE_CPP_CORE_MODULE_INCLUDE)/%_types.h: $(CONCRETE_CPP_CORE_MODULE_THRIFT_WHERE)/%.thrift
+	@echo "Compiling thrift $< to make $*_types.h"
+	@if [ ! -d $(@D) ]; then mkdir -p $(@D); fi
+	$(THRIFT_COMPILE) -out $(@D) $<
+$(CONCRETE_CPP_CORE_MODULE_BUILD)/%_types.cpp: $(CONCRETE_CPP_CORE_MODULE_THRIFT_WHERE)/%.thrift
+	@echo "Compiling thrift $< to make $*_types.cpp"
+	@if [ ! -d $(@D) ]; then mkdir -p $(@D); fi
+	$(THRIFT_COMPILE) -out $(@D) $<
+
+$(CONCRETE_CORE_VERSION_HPP): $(CONCRETE_CORE_VERSION_H_)
+	@if [ ! -d $(@D) ]; then mkdir -p $(@D); fi
+	cp $< $@
+
+$(CONCRETE_CORE_VERSION_CPP_): $(CONCRETE_CORE_VERSION_H_) .concrete_core__version__file__.
+	@rm -rf $@
+	@if [ ! -d $(@D) ]; then mkdir -p $(@D); fi
+	@touch $@
+	@echo "#include \"$(BASE_CONCRETE_CORE_VERSION_H_)\"" >> $@
+	@echo "" >> $@
+	@echo "namespace concrete {" >> $@
+	@echo "const std::string CONCRETE_VERSION=\"$(.CONC_VER)\";" >> $@
+	@echo "}" >> $@
+	@echo "" >> $@
+	@rm .concrete_core__version__file__.
+	cp $< $(CONCRETE_CPP_CORE_MODULE_BUILD)/.
+
+$(CONCRETE_CPP_CORE_MODULE_BUILD)/%.o: $(CONCRETE_CPP_CORE_MODULE_BUILD)/%.cpp
+	@if [ ! -d $(@D) ]; then mkdir -p $(@D); fi
+	$(CONCRETE_CXX_COMPILE) -I$(CONCRETE_CPP_CORE_MODULE_INCLUDE) -o $@ -c $<
+
+.PHONY: concrete-cpp-core-module
+concrete-cpp-core-module: $(CONCRETE_CORE_MODULE_GEN_H) $(CONCRETE_CORE_MODULE_GEN_OBJ_)
+

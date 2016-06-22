@@ -1,0 +1,8 @@
+*~
+
+*.o
+*.so
+*.a
+
+build/
+generated/
