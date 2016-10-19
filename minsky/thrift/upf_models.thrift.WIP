@@ -1,0 +1,27 @@
+namespace cpp minsky
+
+include "frames.thrift"
+
+struct SituationTemplate {
+  1: optional frames.Distribution sem_frames
+  2: optional frames.Distribution slot_d
+  3: optional string name
+}
+
+struct SituationSlot {
+  1: optional frames.Frame roles
+}
+
+struct Metadata {
+  1: optional string date
+  2: optional string git_hash
+  3: optional string induction_path
+}
+
+struct UPFGlobalSlots {
+  1: required list<SituationTemplate> thematics
+  2: required list<SituationSlot> slots
+  100: required list<frames.Vocab> vocabularies
+  1000: optional Metadata metadata
+}
+

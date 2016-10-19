@@ -1,0 +1,27 @@
+RELATIVE_PATH ?= .
+FE_TEST_SRC_DIRS = $(RELATIVE_PATH)/test/ferrum
+FE_TEST_CPP_FILES_ = $(foreach subdir,$(FE_TEST_SRC_DIRS),$(wildcard $(subdir)/*.cpp))
+SRC += $(FE_TEST_CPP_FILES_)
+REPLACED_SRC += $(subst $(FE_TEST_SRC_DIRS)/,$(SHARED_BUILD_WHERE)/$(FE_TEST_SRC_DIRS)/,$(FE_TEST_CPP_FILES_))
+FERRUM_UNIT_TESTS_NO_FULL = $(filter-out $(ALL_TEST_BUILD_DIRS),$(subst $(RELATIVE_PATH)/test/,,$(FE_TEST_CPP_FILES_:.cpp=)))
+
+$(SHARED_BUILD_WHERE)/test/%.o: $(RELATIVE_PATH)/test/%.cpp $(SHARED_BUILD_WHERE)/test/%.d 
+	@if [ ! -d $(@D) ]; then mkdir -p $(@D); fi
+	$(CXX) $(CXX_SHARED_FLAGS) $(CXXFLAGS) $(GTEST_FLAGS) -c $< -o $@
+
+$(SHARED_BUILD_WHERE)/test/%.d : ferrum/test/%.cpp
+	@if [ ! -d `dirname $@` ]; then mkdir -p `dirname $@`; fi
+	@scripts/autodepend.sh \
+            "$(CXX) -MG -MP -MM $(CXX_SHARED_FLAGS) -I$(GTEST_DIR)/include -I$(GTEST_DIR) $(CXXFLAGS)" \
+            `dirname $*.cpp` \
+            "$(SHARED_BUILD_WHERE)/test/" \
+             $< > $@
+
+$(FERRUM_UNIT_TESTS_NO_FULL) : % : $(SHARED_TEST_WHERE)/%
+	$(call verify_exist,$(SHARED_TEST_WHERE)/$*)
+	@$(ECHO) "Running unit test $(STATUS_COLOR)$<$(NO_COLOR)"
+	cd $(RELATIVE_PATH)/test && $(RUNNER) $(SHARED_TEST_WHERE)/$@
+	@$(ECHO) ""
+
+
+

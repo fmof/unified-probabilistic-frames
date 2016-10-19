@@ -1,0 +1,28 @@
+RELATIVE_PATH ?= .
+FERRUM_SRC_DIR = $(RELATIVE_PATH)/ferrum
+FERRUM_SRC_ = $(shell find $(FERRUM_SRC_DIR) -type f -name '*.cpp') 
+SRC += $(FERRUM_SRC_) $(SHARED_BUILD_WHERE)/ferrum/version.cpp
+FERRUM_REPLACED_SRC += $(subst $(FERRUM_SRC_DIR)/,$(SHARED_BUILD_WHERE)/ferrum/,$(FERRUM_SRC_)) \
+   $(SHARED_BUILD_WHERE)/ferrum/version.cpp
+FERRUM_H_ = $(shell find $(FERRUM_SRC_DIR) -type f -name '*.hpp')
+SRC += $(FERRUM_H_)
+FERRUM_TCC_ = $(shell find $(FERRUM_SRC_DIR) -type f -name '*.tcc')
+SRC += $(FERRUM_TCC_)
+
+### SPECIAL CASE the version file
+$(SHARED_BUILD_WHERE)/ferrum/version.cpp:
+	@if [ ! -d $(@D) ]; then mkdir -p $(@D); fi
+	bash scripts/get_git_hash.sh $@ ferrum FERRUM ferrum/version.hpp
+
+$(SHARED_BUILD_WHERE)/%.d : ferrum/%.cpp
+	@if [ ! -d `dirname $@` ]; then mkdir -p `dirname $@`; fi
+	@scripts/autodepend.sh \
+           "$(CXX) -MG -MP -MM $(CXX_SHARED_FLAGS) $(CXXFLAGS)" \
+           `dirname $*.cpp` \
+           "$(SHARED_BUILD_WHERE)" \
+            $< > $@
+
+$(SHARED_BUILD_WHERE)/%.o: $(SHARED_BUILD_WHERE)/%.d $(RELATIVE_PATH)/%.cpp
+	@if [ ! -d $(@D) ]; then mkdir -p $(@D); fi
+	$(CXX) $(CXX_SHARED_FLAGS) $(CXXFLAGS) -c $(RELATIVE_PATH)/$*.cpp -o $@
+

@@ -48,8 +48,8 @@ CXXFLAGS += -Iferrum
 FERRUM_OBJ := $(patsubst %.cpp,%.o, $(filter %.cpp,$(FERRUM_REPLACED_SRC)))
 ####################################
 include upf/Makefile
-#CXXFLAGS += -Ihermes
 UPF_OBJ := $(patsubst %.cpp,%.o, $(filter %.cpp,$(UPF_REPLACED_SRC)))
+CXXFLAGS += -I.
 ####################################
 HPP_FILES_ = $(UPF_H_) $(FERRUM_H_)
 TCC_FILES_ = $(UPF_TCC_) $(FERRUM_TCC_)

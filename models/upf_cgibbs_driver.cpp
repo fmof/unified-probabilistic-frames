@@ -8,7 +8,8 @@
 #include "ferrum/crtlda_sampling.hpp"
 #include "ferrum/redis_corpus.hpp"
 
-#include "upf_utils.hpp"
+#include "upf/upf_sampling.hpp"
+#include "upf/upf_sampling.tcc"
 
 #include "concrete_util/uuid_util.h"
 
@@ -83,7 +84,7 @@ struct OptionNames {
 
 int get_options(int n_args, char** args,
 		po::variables_map* vm,
-		ferrum::SamplingStrategy* strategy,
+		ferrum::WithKindsSamplingStrategy* strategy,
 		ferrum::SymmetricHyperparams* hyperparams,
 		OptionClosureWrapper* ocw,
 		const OptionNames& names) {
@@ -179,18 +180,41 @@ int get_options(int n_args, char** args,
     ("sparsity-threshold", po::value<double>()->default_value(0.0), "sparsity threshold")
     ("thrift-sparsity", po::bool_switch()->default_value(false), "store sparse SAGE distributions in serialized thrift")
     ("optimization-sparsity", po::bool_switch()->default_value(false), "enforce sparsity during optimization")
+    ///////////////////////////////////////////
     ("num-samples", po::value<int>(&(strategy->num_iterations))->default_value(1000),
      "number of Gibbs sampling steps to take (default: 1000)")
     ("burnin", po::value<int>(&(strategy->burn_in))->default_value(100),
      "number of burn-in samples (default: 100)")
+    ///
+    ("update-all",
+     po::value<unsigned int>(),
+     "if given, set all --update-X options to this. default: not given")
+    ("update-template-usage",
+     po::value<int>(&(strategy->reestimate_template_usage_every_))->default_value(100),
+     "reestimate template usage every N iterations (default: 100)")
+    ("update-slot-usage",
+     po::value<int>(&(strategy->reestimate_slot_usage_every_))->default_value(100),
+     "reestimate slot usage every N iterations (default: 100)")
+    ("update-gov",
+     po::value<int>(&(strategy->reestimate_gov_every_))->default_value(100),
+     "reestimate syntactic governors every N iterations (default: 100)")
+    ("update-rel",
+     po::value<int>(&(strategy->reestimate_rel_every_))->default_value(100),
+     "reestimate syntactic relations every N iterations (default: 100)")
+    ("update-gov-kind",
+     po::value<int>(&(strategy->reestimate_gov_kind_every_))->default_value(100),
+     "reestimate semantic governors every N iterations (default: 100)")
+    ("update-rel-kind",
+     po::value<int>(&(strategy->reestimate_rel_kind_every_))->default_value(100),
+     "reestimate semantic relations every N iterations (default: 100)")
     // ("update-model-interval", po::value<int>(&(strategy->update_model_every))->default_value(5), "update the model every [some] number of EM steps (default: 5)")
     // ("never-update-model", po::bool_switch(&(strategy->never_update_model))->default_value(false),
     //  "never transfer parameters back to the model. This should be set for space-saving only")
     ("print-templates-every", po::value<int>()->default_value(25), "print templates every [some] number of sampling steps (default: 25)")
     ("print-usage-every", po::value<int>()->default_value(25), "print template usage every [some] number of sampling steps (default: 25)")
     // ("label-every", po::value<int>(&(strategy->label_every))->default_value(5), "label SitationMentions every [some] number of EM steps (default: 5)")
-    // ("label-host", po::value< std::string >(), "redis host name")
-    // ("label-port", po::value< unsigned short >(), "redis port")
+    ("label-host", po::value< std::string >(), "redis host name")
+    ("label-port", po::value< unsigned short >(), "redis port")
     // ("top-k", po::value<int>(&(strategy->print_topics_k))->default_value(10), "number of words per topic to print (default: 10)")
     // ("em-verbosity", po::value<int>(&(strategy->em_verbosity))->default_value(1),
     //  "how verbose should EM output be (default: 1; higher == more verbose)")
@@ -276,12 +300,13 @@ template <typename Inferencer,
 	  typename Vocab,
 	  typename OutTar>
 void save_state(const Inferencer& inf,
+		const Vocab& gk_vocab, const Vocab& rk_vocab,
 		const Vocab& gov_vocab, const Vocab& rel_vocab,
 		OutTar& output_tar,
 		const std::string& ser_name,
 		int epoch) {
   minsky::residual::ResidualUniqueSlots rgs =
-    inf.create_minsky_view(gov_vocab, rel_vocab);
+    inf.create_minsky_view(gk_vocab, rk_vocab, gov_vocab, rel_vocab);
   output_tar =
     std::shared_ptr<ferrum::CompressedTar>
     (new ferrum::CompressedTar
@@ -297,7 +322,7 @@ void save_state(const Inferencer& inf,
      );
   output_tar->write_data
     (
-     "upf_syntax_only.epoch" + std::to_string(epoch) + ".thrift",
+     "upf.epoch" + std::to_string(epoch) + ".thrift",
      &(thrift_str[0]),
      thrift_str.size()
      );
@@ -324,9 +349,14 @@ int main(int n_args, char** args) {
 
   po::variables_map vm;
   OptionNames names;
-  int option_status = get_options(n_args, args, &vm, &strategy, &hyperparams, &ocw, names);
+  int option_status = get_options(n_args, args, &vm,
+				  &strategy, &hyperparams,
+				  &ocw, names);
   if(option_status) {
     return option_status;
+  }
+  if(vm.count("update-all")) {
+    strategy.reestimate_template_usage_every_ = strategy.reestimate_slot_usage_every_ = strategy.reestimate_gov_every_ = strategy.reestimate_rel_every_ = strategy.reestimate_gov_kind_every_ = strategy.reestimate_rel_kind_every_ = vm["update-all"].as<unsigned int>();
   }
 
   typedef std::string string;
@@ -488,11 +518,19 @@ int main(int n_args, char** args) {
       corpus->multithreaded( main_redis_connection->multithreaded() );
       INFO << "... done connecting to existing db";
 
-      INFO << "Going to load gov vocab [" << vm["gov-vocab"].as<std::string>() << "]from existing database at " << host << ":" << port;
+      INFO << "Going to load gov kind vocab [" << vm["gov-kind-vocab"].as<std::string>() << "] from existing database at " << host << ":" << port;
+      corpus->_load_vocab(vm["gov-kind-vocab"].as<std::string>(), gov_kind_vocab);
+      INFO << ".... done loading gov kind vocab";
+
+      INFO << "Going to load rel kind vocab [" << vm["rel-kind-vocab"].as<std::string>() << "] from existing database at " << host << ":" << port;
+      corpus->_load_vocab(vm["rel-kind-vocab"].as<std::string>(), rel_kind_vocab);
+      INFO << ".... done loading rel kind vocab";
+
+      INFO << "Going to load gov vocab [" << vm["gov-vocab"].as<std::string>() << "] from existing database at " << host << ":" << port;
       corpus->_load_vocab(vm["gov-vocab"].as<std::string>(), gov_vocab);
       INFO << ".... done loading gov vocab";
 
-      INFO << "Going to load rel vocab [" << vm["rel-vocab"].as<std::string>() << "]from existing database at " << host << ":" << port;
+      INFO << "Going to load rel vocab [" << vm["rel-vocab"].as<std::string>() << "] from existing database at " << host << ":" << port;
       corpus->_load_vocab(vm["rel-vocab"].as<std::string>(), rel_vocab);
       INFO << ".... done loading rel vocab";
 
@@ -513,11 +551,6 @@ int main(int n_args, char** args) {
     if(vm["no-run"].as<bool>()) {
       // do nothing
     } else {
-      ferrum::StringDiscreteKindPrinter inf_printer;
-      inf_printer.gk_vocab = &gov_kind_vocab;
-      inf_printer.rk_vocab = &rel_kind_vocab;
-      inf_printer.g_vocab  = &gov_vocab;
-      inf_printer.r_vocab  = &rel_vocab;
       double verb_bck_val = 0.0;
       if(vm.count("uniform-verb-background")) {
 	verb_bck_val = vm["uniform-verb-background"].as<double>();
@@ -573,31 +606,36 @@ int main(int n_args, char** args) {
       rel_vocab.allow_new_words(false);
       bool do_dev = false; //read_dev(vm, gov_vocab, rel_vocab, &heldout_corpus, tools, main_redis_connection, -1, corp_disk_reader);
       // SAMPLING LOOP
-      ferrum::DKVWriters sw_wrapper;
-      inf_printer.g_vocab = &gov_vocab;
+      ferrum::StringDiscreteKindPrinter inf_printer;
+      inf_printer.gk_vocab = &gov_kind_vocab;
+      inf_printer.rk_vocab = &rel_kind_vocab;
+      inf_printer.g_vocab  = &gov_vocab;
+      inf_printer.r_vocab  = &rel_vocab;
       inf_printer.print.tg = vm["print-templates-every"].as<int>();
       inf_printer.print.usage_t = vm["print-usage-every"].as<int>();
+      ferrum::DKVWriters sw_wrapper;
       //int h_epoch = 0;
       int epoch = 0;
       do {
 	std::shared_ptr<ferrum::CompressedTar> output_tar;
 	if(vm.count(names.INFERENCER_SERIALIZATION)) {
-	  // save_state(inf, gov_vocab, rel_vocab, output_tar,
-	  // 	     vm[names.INFERENCER_SERIALIZATION].as<std::string>(),
-	  // 	     epoch);
+	  save_state(inf, gov_kind_vocab, rel_kind_vocab,
+		     gov_vocab, rel_vocab, output_tar,
+	  	     vm[names.INFERENCER_SERIALIZATION].as<std::string>(),
+	  	     epoch);
 	}
 	INFO << "Starting learning epoch " << epoch;
 	if(output_tar == NULL) {
 	  inf.learn< ferrum::RedisCorpus<Doc>,
 		     ::ferrum::db::RedisThriftSmartWriter,
-		     decltype(main_redis_connection) >
+		     decltype(label_redis_connection) >
 	    (
 	     corpus,
 	     epoch,
 	     inf_printer,
 	     &sw_wrapper,
 	     false, // not heldout
-	     main_redis_connection
+	     label_redis_connection
 	     );
 	} else {
 	  inf.learn< ferrum::RedisCorpus<Doc>,
@@ -637,10 +675,10 @@ int main(int n_args, char** args) {
       } while(epoch < num_epochs_); // end training epoch loop
       if(vm.count(names.INFERENCER_SERIALIZATION)) {
 	std::shared_ptr<ferrum::CompressedTar> output_tar;
-#warning "Fix this"
-	// save_state(inf, gov_vocab, rel_vocab, output_tar,
-	// 	   vm[names.INFERENCER_SERIALIZATION].as<std::string>(),
-	// 	   epoch);
+	save_state(inf, gov_kind_vocab, rel_kind_vocab,
+		   gov_vocab, rel_vocab, output_tar,
+		   vm[names.INFERENCER_SERIALIZATION].as<std::string>(),
+		   epoch);
       }
       FREE_IF_NNULL(heldout_corpus);
     }

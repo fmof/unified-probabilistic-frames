@@ -8,9 +8,10 @@
 #include "ferrum/crtlda_sampling.hpp"
 #include "ferrum/redis_corpus.hpp"
 
-#include "upf_utils.hpp"
-
 #include "concrete_util/uuid_util.h"
+
+#include "upf/upf_sampling.hpp"
+#include "upf/upf_sampling.tcc"
 
 #include <gsl/gsl_rng.h>
 #include <boost/program_options.hpp>
@@ -185,8 +186,8 @@ int get_options(int n_args, char** args,
     ("print-templates-every", po::value<int>()->default_value(25), "print templates every [some] number of sampling steps (default: 25)")
     ("print-usage-every", po::value<int>()->default_value(25), "print template usage every [some] number of sampling steps (default: 25)")
     // ("label-every", po::value<int>(&(strategy->label_every))->default_value(5), "label SitationMentions every [some] number of EM steps (default: 5)")
-    // ("label-host", po::value< std::string >(), "redis host name")
-    // ("label-port", po::value< unsigned short >(), "redis port")
+    ("label-host", po::value< std::string >(), "redis host name")
+    ("label-port", po::value< unsigned short >(), "redis port")
     // ("top-k", po::value<int>(&(strategy->print_topics_k))->default_value(10), "number of words per topic to print (default: 10)")
     // ("em-verbosity", po::value<int>(&(strategy->em_verbosity))->default_value(1),
     //  "how verbose should EM output be (default: 1; higher == more verbose)")
@@ -549,14 +550,14 @@ int main(int n_args, char** args) {
 	if(output_tar == NULL) {
 	  inf.learn< ferrum::RedisCorpus<Doc>,
 		     ::ferrum::db::RedisThriftSmartWriter,
-		     decltype(main_redis_connection) >
+		     decltype(label_redis_connection) >
 	    (
 	     corpus,
 	     epoch,
 	     inf_printer,
 	     &sw_wrapper,
 	     false, // not heldout
-	     main_redis_connection
+	     label_redis_connection
 	     );
 	} else {
 	  inf.learn< ferrum::RedisCorpus<Doc>,
